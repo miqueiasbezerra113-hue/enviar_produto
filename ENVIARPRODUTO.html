@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adicionar produtos</title>
+<style>
+  :root { --bg:#fdf6f7; --card:#fff; --ink:#3a2f31; --muted:#8c7b7e; --accent:#d9798f; --line:#efdfe2; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--ink); padding:20px 14px 40px; }
+  main { max-width:520px; margin:0 auto; }
+  h1 { font-size:1.3rem; margin:0 0 4px; }
+  h2 { font-size:1rem; margin:0 0 10px; }
+  p.sub { margin:0 0 18px; color:var(--muted); font-size:.9rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px; margin-bottom:16px; }
+  label { display:block; font-size:.85rem; font-weight:600; margin:14px 0 6px; }
+  label:first-child { margin-top:0; }
+  small { font-weight:400; color:var(--muted); }
+  input[type=text] { width:100%; padding:12px; border:1px solid var(--line); border-radius:10px; font-size:1rem; background:#fff; color:var(--ink); }
+  input.bad { border-color:#c0392b; }
+  input:focus { outline:2px solid var(--accent); border-color:transparent; }
+  .check { display:flex; align-items:center; gap:10px; margin-top:16px; font-weight:600; font-size:.95rem; }
+  .check input { width:20px; height:20px; accent-color:var(--accent); }
+  .row { display:flex; gap:10px; margin-top:18px; }
+  button { flex:1; padding:14px 8px; border:0; border-radius:12px; background:var(--accent); color:#fff; font-size:.95rem; font-weight:700; cursor:pointer; }
+  button.ghost { background:#fff; color:var(--accent); border:1px solid var(--accent); }
+  button:disabled { opacity:.6; cursor:wait; }
+  .full { width:100%; margin-top:14px; display:block; }
+  #msg { margin:0 0 16px; text-align:center; font-size:.95rem; min-height:1.2em; font-weight:600; }
+  .ok { color:#2f8f5b; } .err { color:#c0392b; }
+  img#prev { display:none; max-width:120px; margin-top:8px; border-radius:10px; border:1px solid var(--line); }
+  ul { list-style:none; margin:0; padding:0; }
+  li { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); font-size:.92rem; }
+  li:last-child { border-bottom:0; }
+  li img { width:40px; height:40px; object-fit:cover; border-radius:8px; background:var(--line); flex:none; }
+  li .t { flex:1; min-width:0; }
+  li .t b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  li .t span { color:var(--muted); font-size:.8rem; }
+  li button.x { flex:none; padding:6px 10px; background:transparent; color:var(--muted); font-size:1.1rem; }
+  #listCard { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Adicionar produtos</h1>
+  <p class="sub">Envie um produto direto ou monte uma lista e envie tudo de uma vez.</p>
+
+  <form id="f" class="card" autocomplete="off" novalidate>
+    <label for="nome">Nome do produto</label>
+    <input type="text" id="nome" name="nome">
+
+    <label for="cat">Categoria</label>
+    <input type="text" id="cat" name="cat" list="cats">
+    <datalist id="cats"></datalist>
+
+    <label for="link">Link <small>(coluna D)</small></label>
+    <input type="text" inputmode="url" id="link" name="link" placeholder="https://...">
+
+    <label for="img">Link da imagem</label>
+    <input type="text" inputmode="url" id="img" name="img" placeholder="https://i.ibb.co/...">
+    <img id="prev" alt="Prévia da imagem">
+
+    <label for="tag">Tag <small>(opcional, ex: mais vendido)</small></label>
+    <input type="text" id="tag" name="tag">
+
+    <label for="link_produto">Link do produto <small>(coluna I, opcional)</small></label>
+    <input type="text" inputmode="url" id="link_produto" name="link_produto" placeholder="https://...">
+
+    <label class="check"><input type="checkbox" id="top" name="top"> Destacar em "Top"</label>
+
+    <div class="row">
+      <button type="button" id="btnAdd" class="ghost">+ Adicionar à lista</button>
+      <button type="button" id="btnSend">Enviar este</button>
+    </div>
+  </form>
+
+  <div id="msg"></div>
+
+  <section id="listCard" class="card">
+    <h2>Na lista: <span id="count">0</span></h2>
+    <ul id="items"></ul>
+    <button type="button" id="sendAll" class="full">Enviar tudo</button>
+    <button type="button" id="clearAll" class="full ghost">Limpar lista</button>
+  </section>
+</main>
+
+<script>
+  // COLE AQUI a URL do seu Web App (termina em /exec)
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyeT3FjAJcYSVYTF1HyveHCViryqyPrZOkrLnNdAP8C0F71kVvklUDH88nP8X0yEQ6x/exec";
+
+  const $ = id => document.getElementById(id);
+  const f = $("f"), msg = $("msg"), prev = $("prev");
+  const listCard = $("listCard"), itemsEl = $("items"), countEl = $("count");
+  const btnAdd = $("btnAdd"), btnSend = $("btnSend"), sendAll = $("sendAll");
+
+  let queue = [];
+  try { queue = JSON.parse(localStorage.getItem("queue") || "[]"); } catch (e) {}
+  function saveQueue() { try { localStorage.setItem("queue", JSON.stringify(queue)); } catch (e) {} }
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+  function show(text, cls) { msg.className = cls || ""; msg.textContent = text; }
+
+  function render() {
+    countEl.textContent = queue.length;
+    listCard.style.display = queue.length ? "block" : "none";
+    sendAll.textContent = "Enviar tudo (" + queue.length + ")";
+    itemsEl.innerHTML = queue.map((p, i) =>
+      '<li><img src="' + esc(p.img) + '" alt="" onerror="this.style.visibility=\'hidden\'">' +
+      '<div class="t"><b>' + esc(p.nome) + '</b><span>' + esc(p.cat) + (p.top ? " · Top" : "") + (p.tag ? " · " + esc(p.tag) : "") + '</span></div>' +
+      '<button type="button" class="x" data-i="' + i + '" aria-label="Remover">✕</button></li>'
+    ).join("");
+  }
+  itemsEl.addEventListener("click", e => {
+    const b = e.target.closest("button.x");
+    if (!b) return;
+    queue.splice(Number(b.dataset.i), 1); saveQueue(); render();
+  });
+
+  function loadCats() {
+    try {
+      const cats = JSON.parse(localStorage.getItem("cats") || "[]");
+      $("cats").innerHTML = cats.map(c => '<option value="' + esc(c) + '">').join("");
+    } catch (e) {}
+  }
+  function saveCat(c) {
+    try {
+      const cats = JSON.parse(localStorage.getItem("cats") || "[]");
+      if (c && !cats.some(x => x.toLowerCase() === c.toLowerCase())) {
+        cats.push(c); localStorage.setItem("cats", JSON.stringify(cats));
+      }
+    } catch (e) {}
+  }
+  loadCats();
+
+  $("img").addEventListener("input", e => {
+    let v = e.target.value.trim();
+    if (v && !/^https?:\/\//i.test(v)) v = "https://" + v;
+    if (v.length > 12) { prev.src = v; prev.style.display = "block"; } else prev.style.display = "none";
+  });
+  prev.onerror = () => { prev.style.display = "none"; };
+
+  const fixUrl = v => { v = v.trim(); return v && !/^https?:\/\//i.test(v) ? "https://" + v : v; };
+
+  // lê e valida o formulário; devolve o produto ou null
+  function readForm() {
+    const p = {
+      nome: $("nome").value.trim(),
+      cat: $("cat").value.trim(),
+      link: fixUrl($("link").value),
+      img: fixUrl($("img").value),
+      tag: $("tag").value.trim(),
+      link_produto: fixUrl($("link_produto").value),
+      top: $("top").checked ? "sim" : ""
+    };
+    ["nome", "cat", "link", "img"].forEach(k => $(k).classList.remove("bad"));
+    const faltando = ["nome", "cat", "link", "img"].filter(k => !p[k]);
+    if (faltando.length) {
+      faltando.forEach(k => $(k).classList.add("bad"));
+      $(faltando[0]).focus();
+      show("Preencha: " + faltando.map(k => ({ nome: "nome", cat: "categoria", link: "link", img: "imagem" }[k])).join(", "), "err");
+      return null;
+    }
+    return p;
+  }
+
+  function clearForm() {
+    const keepCat = $("cat").value;
+    f.reset(); $("cat").value = keepCat; prev.style.display = "none";
+    $("nome").focus();
+  }
+
+  async function post(items) {
+    if (SCRIPT_URL.indexOf("COLE") === 0) { show("Falta colar a URL do Apps Script no arquivo.", "err"); return false; }
+    try {
+      await fetch(SCRIPT_URL, {
+        method: "POST", mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(items)
+      });
+      return true;
+    } catch (err) {
+      show("Não consegui enviar. Verifique a internet e tente de novo.", "err");
+      return false;
+    }
+  }
+
+  // + Adicionar à lista
+  btnAdd.addEventListener("click", () => {
+    const p = readForm(); if (!p) return;
+    queue.push(p); saveQueue(); saveCat(p.cat); loadCats(); render();
+    clearForm();
+    show("Adicionado à lista (" + queue.length + ")", "ok");
+  });
+
+  // Enviar só este
+  btnSend.addEventListener("click", async () => {
+    const p = readForm(); if (!p) return;
+    btnSend.disabled = true; show("Enviando...");
+    if (await post([p])) { saveCat(p.cat); loadCats(); clearForm(); show("Produto enviado! ✓", "ok"); }
+    btnSend.disabled = false;
+  });
+
+  // Enviar a lista toda
+  sendAll.addEventListener("click", async () => {
+    if (!queue.length) return;
+    sendAll.disabled = true; show("Enviando " + queue.length + " produto(s)...");
+    const n = queue.length;
+    if (await post(queue)) { queue = []; saveQueue(); render(); show(n + " produto(s) enviado(s)! ✓", "ok"); }
+    else show("Não consegui enviar. A lista continua salva, tente de novo.", "err");
+    sendAll.disabled = false;
+  });
+
+  $("clearAll").addEventListener("click", () => {
+    if (queue.length && confirm("Apagar toda a lista?")) { queue = []; saveQueue(); render(); show(""); }
+  });
+
+  // Enter no teclado = adicionar à lista
+  f.addEventListener("submit", e => { e.preventDefault(); btnAdd.click(); });
+
+  render();
+</script>
+</body>
+</html>
